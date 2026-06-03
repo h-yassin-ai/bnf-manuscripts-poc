@@ -14,7 +14,7 @@ import re
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 PARENT_DIR = os.path.dirname(PROJECT_ROOT)
-AL_KUTUB_DIR = os.path.join(PARENT_DIR, "Al-Kutub-Automator")
+AL_KUTUB_DIR = os.getenv("AL_KUTUB_DIR", os.path.join(PARENT_DIR, "Al-Kutub-Automator"))
 
 sys.path.append(AL_KUTUB_DIR)
 

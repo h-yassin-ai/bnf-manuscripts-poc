@@ -8,6 +8,7 @@ import { Upload, Languages, FileDown, Loader2, CheckCircle2, ChevronLeft, Chevro
 import { toast } from "sonner";
 import { Progress } from "./ui/progress";
 import { ScrollArea } from "./ui/scroll-area";
+import JSZip from "jszip";
 
 import ManuscriptChatbot from "./ManuscriptChatbot";
 import { Separator } from "./ui/separator";
@@ -102,6 +103,88 @@ export default function BulkOCRWorkbench() {
         URL.revokeObjectURL(url);
     };
 
+    const handleTranscriptionExport = async () => {
+        if (images.length === 0) return;
+
+        setIsProcessing(true);
+        setProgress(0);
+        const zip = new JSZip();
+
+        try {
+            for (let i = 0; i < images.length; i++) {
+                setProgress(Math.round((i / images.length) * 100));
+
+                // 1. Get the page image as a blob
+                const pageRes = await fetch(images[i]);
+                const pageBlob = await pageRes.blob();
+                const pageExt = pageBlob.type.split('/')[1] || 'png';
+                const pageFilename = `page_${(i + 1).toString().padStart(3, '0')}.jpg`;
+
+                const folder = zip.folder(`page_${(i + 1).toString().padStart(3, '0')}`);
+                if (!folder) continue;
+
+                folder.file(pageFilename, pageBlob);
+
+                // 2. Call segmentation API with includeImages=true
+                const formData = new FormData();
+                formData.append("file", pageBlob, pageFilename);
+                formData.append("includeImages", "true");
+
+                const segRes = await fetch("/api/segment", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!segRes.ok) throw new Error(`Erreur segmentation page ${i + 1}`);
+
+                const segData = await segRes.json();
+                const linesFolder = folder.folder("lines");
+
+                const manifest = {
+                    page: pageFilename,
+                    transcription: transcriptions[i] || "",
+                    lines: [] as any[]
+                };
+
+                if (segData.lines && linesFolder) {
+                    for (let j = 0; j < segData.lines.length; j++) {
+                        const line = segData.lines[j];
+                        if (line.image) {
+                            const lineFilename = `line_${(j + 1).toString().padStart(3, '0')}.png`;
+                            const base64Data = line.image.split(',')[1];
+                            linesFolder.file(lineFilename, base64Data, { base64: true });
+
+                            manifest.lines.push({
+                                index: j + 1,
+                                image: `lines/${lineFilename}`,
+                                bbox: line.bbox,
+                                baseline: line.baseline,
+                                boundary: line.boundary
+                            });
+                        }
+                    }
+                }
+
+                folder.file("manifest.json", JSON.stringify(manifest, null, 2));
+            }
+
+            setProgress(100);
+            const content = await zip.generateAsync({ type: "blob" });
+            const url = URL.createObjectURL(content);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "export_transcription_plateforme.zip";
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success("Exportation terminée");
+        } catch (error: any) {
+            console.error(error);
+            toast.error(`Échec de l'exportation: ${error.message}`);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     return (
         <Card className="w-full h-[calc(100vh-2rem)] flex flex-col bg-[#FDFCF8]">
             <CardHeader className="flex flex-row items-center justify-between py-3 border-b bg-white/50 backdrop-blur-sm z-30">
@@ -161,7 +244,17 @@ export default function BulkOCRWorkbench() {
                                 className="gap-2 border-stone-200"
                             >
                                 <FileDown className="w-4 h-4" />
-                                Exporter .txt
+                                .txt
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleTranscriptionExport}
+                                disabled={isProcessing}
+                                className="gap-2 border-stone-200 bg-amber-50 hover:bg-amber-100 text-amber-900"
+                            >
+                                <FileDown className="w-4 h-4" />
+                                Export Plateforme (.zip)
                             </Button>
                         </>
                     )}

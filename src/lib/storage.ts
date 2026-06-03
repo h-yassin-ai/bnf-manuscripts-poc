@@ -112,7 +112,7 @@ export const storage = {
         }
     },
 
-    getAllManuscripts: async (): Promise<Array<{ id: string, lastUpdated: number, pageCount: number }>> => {
+    getAllManuscripts: async (): Promise<Array<{ id: string, lastUpdated: number, pageCount: number, transcriptionCount: number }>> => {
         if (typeof window === "undefined") return [];
         try {
             const db = await openDB();
@@ -123,11 +123,22 @@ export const storage = {
                 const request = store.getAll();
                 request.onsuccess = () => {
                     const results = request.result as ManuscriptState[];
-                    const summary = results.map(r => ({
-                        id: r.id,
-                        lastUpdated: r.lastUpdated,
-                        pageCount: r.pages ? r.pages.length : 0
-                    }));
+                    const summary = results.map(r => {
+                        let count = 0;
+                        if (r.transcriptions) {
+                            Object.values(r.transcriptions).forEach(page => {
+                                Object.values(page).forEach(text => {
+                                    if (text && text.trim().length > 0) count++;
+                                });
+                            });
+                        }
+                        return {
+                            id: r.id,
+                            lastUpdated: r.lastUpdated,
+                            pageCount: r.pages ? r.pages.length : 0,
+                            transcriptionCount: count
+                        };
+                    });
                     // Sort by lastUpdated descending
                     summary.sort((a, b) => b.lastUpdated - a.lastUpdated);
                     resolve(summary);

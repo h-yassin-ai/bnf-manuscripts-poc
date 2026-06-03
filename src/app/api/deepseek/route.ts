@@ -38,7 +38,7 @@ Réponds toujours de manière concise et utile.`;
             temperature: 0.3,
         });
 
-        return result.toDataStreamResponse();
+        return result.toUIMessageStreamResponse();
 
     } catch (error: any) {
         console.error("DeepSeek API Handler Error:", error);

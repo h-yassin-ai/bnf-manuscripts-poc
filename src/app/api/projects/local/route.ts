@@ -40,12 +40,23 @@ export async function GET(req: Request) {
                     const parsed = JSON.parse(data);
 
                     // Count pages from segmentations keys
-                    const pagesFound = parsed.segmentations ? Object.keys(parsed.segmentations).length : 0;
+                    const pagesFound = parsed.pages ? parsed.pages.length : (parsed.segmentations ? Object.keys(parsed.segmentations).length : 0);
+
+                    // Count transcribed lines
+                    let transcribeCount = 0;
+                    if (parsed.transcriptions) {
+                        Object.values(parsed.transcriptions).forEach((page: any) => {
+                            Object.values(page).forEach((text: any) => {
+                                if (text && text.trim().length > 0) transcribeCount++;
+                            });
+                        });
+                    }
 
                     projects.push({
                         id: parsed.id || file.replace('.json', ''),
                         lastUpdated: parsed.lastUpdated || (await fs.stat(filePath)).mtimeMs,
                         pageCount: pagesFound,
+                        transcriptionCount: transcribeCount,
                         isLocal: true // flag to distinguish from IndexedDB
                     });
                 } catch (err) {

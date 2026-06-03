@@ -6,40 +6,32 @@ import { Point } from "./krakenTypes";
 export function getPolygonCrop(image: HTMLImageElement, boundary: Point[]): string | null {
     if (!boundary || boundary.length < 3) return null;
 
-    // 1. Calculate bounding box
     const xs = boundary.map(p => p[0]);
     const ys = boundary.map(p => p[1]);
-    const minX = Math.min(...xs);
-    const minY = Math.min(...ys);
-    const maxX = Math.max(...xs);
-    const maxY = Math.max(...ys);
-    const width = maxX - minX;
-    const height = maxY - minY;
+    const minX = Math.floor(Math.min(...xs));
+    const minY = Math.floor(Math.min(...ys));
+    const width = Math.ceil(Math.max(...xs)) - minX;
+    const height = Math.ceil(Math.max(...ys)) - minY;
 
     if (width <= 0 || height <= 0) return null;
 
-    // 2. Create offscreen canvas for the crop
     const offCanvas = document.createElement("canvas");
     offCanvas.width = width;
     offCanvas.height = height;
     const ctx = offCanvas.getContext("2d");
     if (!ctx) return null;
 
-    // 3. Create clipping region from boundary (relative to minX, minY)
+    // Create a polygon clipping path
     ctx.beginPath();
-    boundary.forEach(([x, y], idx) => {
-        if (idx === 0) ctx.moveTo(x - minX, y - minY);
-        else ctx.lineTo(x - minX, y - minY);
-    });
+    ctx.moveTo(boundary[0][0] - minX, boundary[0][1] - minY);
+    for (let i = 1; i < boundary.length; i++) {
+        ctx.lineTo(boundary[i][0] - minX, boundary[i][1] - minY);
+    }
     ctx.closePath();
     ctx.clip();
 
-    // 4. Draw the image (displaced by -minX, -minY)
-    ctx.drawImage(
-        image,
-        minX, minY, width, height, // Source rectangle
-        0, 0, width, height      // Destination rectangle
-    );
+    // Draw the image, only the clipped polygon will be rendered
+    ctx.drawImage(image, minX, minY, width, height, 0, 0, width, height);
 
     return offCanvas.toDataURL("image/png");
 }

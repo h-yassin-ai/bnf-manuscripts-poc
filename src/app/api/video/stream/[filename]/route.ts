@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: { filename: string } }
+    context: { params: Promise<{ filename: string }> }
 ) {
-    const filename = params.filename;
+    const { filename } = await context.params;
     if (!filename) {
         return new NextResponse("Filename required", { status: 400 });
     }

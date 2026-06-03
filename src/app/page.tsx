@@ -6,13 +6,15 @@ import { PageHeader } from "@/components/PageHeader";
 import { storage } from "@/lib/storage";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, FileText, Calendar, Trash2, HardDriveDownload } from "lucide-react";
+import { PlusCircle, FileText, Calendar, Trash2, HardDriveDownload, Download, CheckCircle2, Package } from "lucide-react";
 import { toast } from "sonner";
+import { exportSegmentedImages, bulkExportProjects } from "@/lib/exportUtils";
 
 interface Project {
   id: string;
   lastUpdated: number;
   pageCount: number;
+  transcriptionCount: number;
   isLocal?: boolean;
 }
 
@@ -94,6 +96,8 @@ export default function ProjectsPage() {
       if (!res.ok) throw new Error("Erreur de sauvegarde");
 
       toast.success(`Le projet ${id} a été sauvegardé sur le disque`);
+      // Reload projects to update the list (isLocal status)
+      window.location.reload();
     } catch (error) {
       console.error(error);
       toast.error("Échec de la sauvegarde sur disque");
@@ -102,20 +106,143 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleExport = async (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      toast.loading(`Préparation de l'export pour ${project.id}...`, { id: "export-zip" });
+
+      let state = null;
+      if (project.isLocal) {
+        const res = await fetch(`/api/projects/local?id=${project.id}`);
+        if (res.ok) state = await res.json();
+      } else {
+        state = await storage.loadManuscript(project.id);
+      }
+
+      if (!state) throw new Error("Données du projet introuvables");
+
+      if (!state.pages || state.pages.length === 0) {
+        toast.error("Impossible d'exporter : les images ne sont pas présentes dans le projet. Ouvrez l'atelier et liez le PDF d'abord.");
+        return;
+      }
+
+      const zipBlob = await exportSegmentedImages(
+        state.pages,
+        state.segmentations || {},
+        state.transcriptions || {}
+      ) as Blob;
+
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${project.id}_export.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("Export réussi !");
+    } catch (error) {
+      console.error(error);
+      toast.error("Échec de l'export");
+    } finally {
+      toast.dismiss("export-zip");
+    }
+  };
+
+  const handleBulkExport = async () => {
+    if (projects.length === 0) {
+      toast.error("Aucun projet à exporter");
+      return;
+    }
+
+    try {
+      toast.loading("Préparation de l'exportation globale (normalisation incluse)...", { id: "bulk-export" });
+
+      const projectsData = [];
+
+      for (const project of projects) {
+        let state = null;
+        if (project.isLocal) {
+          const res = await fetch(`/api/projects/local?id=${project.id}`);
+          if (res.ok) state = await res.json();
+        } else {
+          state = await storage.loadManuscript(project.id);
+        }
+
+        if (state && state.pages && state.pages.length > 0) {
+          projectsData.push({
+            id: project.id,
+            images: state.pages,
+            segmentations: state.segmentations || {},
+            transcriptions: state.transcriptions || {}
+          });
+        }
+      }
+
+      if (projectsData.length === 0) {
+        toast.error("Aucune donnée d'image trouvée dans les projets. Ouvrez-les d'abord pour lier les PDF.");
+        return;
+      }
+
+      const zipBlob = await bulkExportProjects(projectsData);
+
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Export_Global_${new Date().toISOString().split('T')[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exportation de ${projectsData.length} projets terminée !`);
+    } catch (error) {
+      console.error(error);
+      toast.error("Échec de l'exportation globale");
+    } finally {
+      toast.dismiss("bulk-export");
+    }
+  };
+
+  const totalTranscribed = projects.reduce((acc, p) => acc + (p.transcriptionCount || 0), 0);
+
   return (
     <div className="flex flex-col h-screen bg-[#FDFCF8] text-stone-900 font-sans overflow-hidden">
       <PageHeader title="Gérer vos Projets" />
 
       <main className="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full">
         <div className="flex justify-between items-center mb-8">
-          <div>
+          <div className="flex flex-col">
             <h2 className="text-3xl font-serif font-bold text-stone-800">Projets Récents</h2>
-            <p className="text-stone-500 mt-1">Gérez vos manuscrits et suivez vos transcriptions.</p>
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-stone-500">Gérez vos manuscrits et suivez vos transcriptions.</p>
+              {projects.length > 0 && (
+                <>
+                  <span className="text-stone-300">|</span>
+                  <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full border border-emerald-100 shadow-sm">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="text-xs font-bold uppercase tracking-wider">{totalTranscribed} lignes totales</span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-          <Button onClick={handleCreateNew} className="bg-emerald-700 hover:bg-emerald-800 text-white gap-2">
-            <PlusCircle className="w-4 h-4" />
-            Nouveau Projet
-          </Button>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={handleBulkExport}
+              className="border-blue-200 text-blue-700 hover:bg-blue-50 gap-2"
+              title="Exporter tous les projets (Nettoyage arabe inclus)"
+            >
+              <Package className="w-4 h-4" />
+              Exporter Tout
+            </Button>
+            <Button onClick={handleCreateNew} className="bg-emerald-700 hover:bg-emerald-800 text-white gap-2">
+              <PlusCircle className="w-4 h-4" />
+              Nouveau Projet
+            </Button>
+          </div>
         </div>
 
         {projects.length === 0 ? (
@@ -150,6 +277,15 @@ export default function ProjectsPage() {
                       )}
                     </CardTitle>
                     <div className="flex gap-1 -mt-2 -mr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        title="Exporter en ZIP (Images + Textes)"
+                        onClick={(e) => handleExport(project, e)}
+                      >
+                        <Download className="w-4 h-4" />
+                      </Button>
                       {!project.isLocal && (
                         <Button
                           variant="ghost"
@@ -181,10 +317,14 @@ export default function ProjectsPage() {
                     })}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="pt-4">
+                <CardContent className="pt-4 space-y-2">
                   <div className="flex items-center gap-2 text-stone-600">
                     <FileText className="w-4 h-4 text-stone-400" />
                     <span className="font-medium">{project.pageCount}</span> page{project.pageCount > 1 ? 's' : ''} au total
+                  </div>
+                  <div className="flex items-center gap-2 text-stone-600">
+                    <CheckCircle2 className={`w-4 h-4 ${project.transcriptionCount > 0 ? "text-emerald-500" : "text-stone-300"}`} />
+                    <span className="font-medium">{project.transcriptionCount}</span> lignes transcrites
                   </div>
                 </CardContent>
                 <CardFooter className="pt-2 pb-4">

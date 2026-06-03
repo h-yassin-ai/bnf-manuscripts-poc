@@ -10,6 +10,7 @@ import { useChat } from "@ai-sdk/react";
 // import { type UIMessage as Message } from "@ai-sdk/react"; // Attempt explicit type if needed, or just let inference work for now
 // Actually, let's use 'any' in the map to be safe if strict type fails, or alias UIMessage
 import { type UIMessage } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 
 type Message = UIMessage;
 
@@ -26,10 +27,12 @@ const ManuscriptChatbot: React.FC<ManuscriptChatbotProps> = ({ className, transc
     // Vercel AI SDK useChat hook
     // Vercel AI SDK useChat hook (manual handling for @ai-sdk/react structure)
     const { messages, status, sendMessage, stop } = useChat({
-        api: '/api/chat',
-        body: { text: transcriptionText }, // Pass current text context
-        initialMessages: [
-            { id: 'welcome', role: 'assistant', content: "Bonjour ! Je suis votre assistant. Comment puis-je vous aider avec ce manuscrit ?" }
+        transport: new DefaultChatTransport({
+            api: '/api/chat',
+            body: { text: transcriptionText }, // Pass current text context
+        }),
+        messages: [
+            { id: 'welcome', role: 'assistant', parts: [{ type: 'text', text: "Bonjour ! Je suis votre assistant. Comment puis-je vous aider avec ce manuscrit ?" }] }
         ]
     });
 
@@ -41,19 +44,13 @@ const ManuscriptChatbot: React.FC<ManuscriptChatbotProps> = ({ className, transc
         setInput(e.target.value);
     };
 
-    const append = async (message: Message | any) => {
-        // Wrapper for sendMessage to match expected 'append' behavior
-        // sendMessage likely expects a message object
-        return sendMessage(message);
-    };
-
     const handleSubmit = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
         if (!input.trim()) return;
 
-        const userMessage = { role: 'user', content: input };
+        const text = input;
         setInput(''); // Clear input immediately
-        await sendMessage(userMessage);
+        await sendMessage({ text });
     };
 
     const scrollViewportRef = useRef<HTMLDivElement>(null);
@@ -83,10 +80,8 @@ const ManuscriptChatbot: React.FC<ManuscriptChatbotProps> = ({ className, transc
             ? "Peux-tu vocaliser (ajouter le Tashkeel) au texte suivant du manuscrit ?"
             : "Peux-tu corriger les fautes d'orthographe et de grammaire du texte suivant ?";
 
-        // Append user message to trigger AI response
-        append({
-            role: 'user',
-            content: `${prompt}\n\n"${transcriptionText}"`
+        await sendMessage({
+            text: `${prompt}\n\n"${transcriptionText}"`
         });
     };
 
@@ -145,7 +140,10 @@ const ManuscriptChatbot: React.FC<ManuscriptChatbotProps> = ({ className, transc
                             {messages.map((m: any) => (
                                 <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-[85%] rounded-lg p-3 text-sm leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'bg-stone-800 text-white' : 'bg-white border border-stone-200 text-stone-700 shadow-sm'}`}>
-                                        {m.content}
+                                        {m.parts ? m.parts.map((part: any, i: number) => {
+                                            if (part.type === 'text') return part.text;
+                                            return null;
+                                        }) : m.content}
                                     </div>
                                 </div>
                             ))}

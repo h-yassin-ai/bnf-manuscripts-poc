@@ -1,9 +1,0 @@
-﻿
-J:\UnivHm_NextJS\bnf-manuscripts-poc\src\components\ManuscriptWorkbench.tsx
-   3:38  warning  'useCallback' is defined but never used      @typescript-eslint/no-unused-vars
-  23:5   warning  'GripVertical' is defined but never used     @typescript-eslint/no-unused-vars
-  27:19  warning  'ManuscriptState' is defined but never used  @typescript-eslint/no-unused-vars
-  30:10  warning  'Separator' is defined but never used        @typescript-eslint/no-unused-vars
-
-Ô£û 4 problems (0 errors, 4 warnings)
-

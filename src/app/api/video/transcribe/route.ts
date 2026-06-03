@@ -3,11 +3,11 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
-export const runtime = 'nodejs'; // Required for child_process
+export const runtime = 'nodejs';
 
 const PYTHON_BRIDGE_SCRIPT = path.join(process.cwd(), 'scripts', 'transcribe_bridge.py');
-const AL_KUTUB_ROOT = path.resolve(process.cwd(), '..', 'Al-Kutub-Automator');
-const DEFAULT_MODEL_PATH = path.join(AL_KUTUB_ROOT, 'stt_ar_fastconformer_hybrid_large_pc_v1.0.nemo');
+const AL_KUTUB_ROOT = process.env.AL_KUTUB_DIR || path.resolve(process.cwd(), '..', 'Al-Kutub-Automator');
+const DEFAULT_MODEL_PATH = process.env.NEMO_MODEL_PATH || path.join(AL_KUTUB_ROOT, 'stt_ar_fastconformer_hybrid_large_pc_v1.0.nemo');
 const OUTPUT_DIR = path.join(process.cwd(), 'public', 'transcriptions');
 
 export async function POST(req: NextRequest) {
@@ -18,15 +18,43 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "URL is required" }, { status: 400 });
         }
 
-        // Ensure output dir
+        // Check if we should delegate to the Python STT API (e.g. inside Docker/Coolify)
+        const targetSttUrl = process.env.PYTHON_STT_API_URL;
+        if (targetSttUrl) {
+            console.log(`[Next.js STT Proxy] Delegating transcription for ${url} to host API at ${targetSttUrl}`);
+            const response = await fetch(targetSttUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ url }),
+            });
+
+            if (!response.ok) {
+                const err = await response.text();
+                return NextResponse.json({ error: `Host STT API error: ${err}` }, { status: response.status });
+            }
+
+            if (!response.body) {
+                return NextResponse.json({ error: "Empty stream returned from host STT API" }, { status: 500 });
+            }
+
+            // Return the stream directly to the client
+            return new NextResponse(response.body, {
+                headers: {
+                    'Content-Type': 'application/x-ndjson',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                },
+            });
+        }
+
+        // Local execution fallback (runs on Windows / direct host)
         if (!fs.existsSync(OUTPUT_DIR)) {
             fs.mkdirSync(OUTPUT_DIR, { recursive: true });
         }
 
-        console.log(`Starting transcription for: ${url}`);
-        console.log(`Script: ${PYTHON_BRIDGE_SCRIPT}`);
-        console.log(`Model: ${DEFAULT_MODEL_PATH}`);
-
+        console.log(`[Next.js Local STT] Starting transcription for: ${url}`);
         const encoder = new TextEncoder();
 
         const stream = new ReadableStream({
@@ -57,22 +85,24 @@ export async function POST(req: NextRequest) {
                     '--url', url,
                     '--model', DEFAULT_MODEL_PATH,
                     '--output_dir', OUTPUT_DIR
-                ]);
+                ], {
+                    env: {
+                        ...process.env,
+                        PYTHONIOENCODING: "utf-8",
+                    }
+                });
 
                 pythonProcess.stdout.on('data', (data) => {
                     const text = data.toString();
-                    console.log(`[Python Output]: ${text}`);
                     safeEnqueue(encoder.encode(text));
                 });
 
                 pythonProcess.stderr.on('data', (data) => {
                     const error = data.toString();
-                    console.error(`[Python stderr]: ${error}`);
                     safeEnqueue(encoder.encode(JSON.stringify({ status: "log", message: error }) + "\n"));
                 });
 
                 pythonProcess.on('close', (code) => {
-                    console.log(`Python process exited with code ${code}`);
                     if (code !== 0) {
                         safeEnqueue(encoder.encode(JSON.stringify({ status: "error", code })));
                     }
@@ -80,7 +110,6 @@ export async function POST(req: NextRequest) {
                 });
 
                 pythonProcess.on('error', (err) => {
-                    console.error(`Spawn error: ${err}`);
                     safeEnqueue(encoder.encode(JSON.stringify({ status: "error", message: err.message })));
                     safeClose();
                 });
