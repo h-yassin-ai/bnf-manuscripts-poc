@@ -52,15 +52,22 @@ def clear_vram():
 
 def load_model():
     global model, processor
-    ckpt = CHECKPOINT_PATH if os.path.exists(CHECKPOINT_PATH) else BASE_MODEL_NAME
-    if not os.path.exists(CHECKPOINT_PATH):
-        print(f"WARNING: Checkpoint introuvable a {CHECKPOINT_PATH}. Chargement du modele de base.")
-    print(f"Chargement du modele depuis : {ckpt}")
+    print(f"Chargement du modele de base : {BASE_MODEL_NAME}")
     model, processor = FastVisionModel.from_pretrained(
-        model_name=ckpt,
+        model_name=BASE_MODEL_NAME,
         load_in_4bit=True,
         max_seq_length=2048,
     )
+    
+    # Redimensionner les embeddings pour correspondre au checkpoint (essentiel)
+    model.resize_token_embeddings(len(processor.tokenizer))
+    
+    if os.path.exists(CHECKPOINT_PATH):
+        print(f"Chargement des adaptateurs LoRA depuis : {CHECKPOINT_PATH}")
+        model.load_adapter(CHECKPOINT_PATH)
+    else:
+        print(f"WARNING: Checkpoint introuvable a {CHECKPOINT_PATH}. Utilisation du modele de base.")
+        
     FastVisionModel.for_inference(model)
     print("Modele pret.")
 
