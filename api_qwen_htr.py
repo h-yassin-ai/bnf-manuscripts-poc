@@ -206,7 +206,7 @@ def transcribe_image(pil_image: Image.Image) -> str:
             ],
         }
     ]
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
 
     inputs = processor(
         text=[text],
