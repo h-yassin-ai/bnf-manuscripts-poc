@@ -6,6 +6,7 @@ import asyncio
 import traceback
 import subprocess
 import json
+import re
 
 # Stability flags (must be set before importing torch/unsloth)
 os.environ["UNSLOTH_RETURN_ANYWAY"] = "1"
@@ -104,6 +105,21 @@ class BatchResponse(BaseModel):
     results: List[LineResult]
 
 
+def extract_clean_prediction(text: str) -> str:
+    # 1. Try to extract content between <full> and </full>
+    match = re.search(r'<full>(.*?)</full>', text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    
+    # 2. Try to extract everything after </think>
+    if "</think>" in text:
+        parts = text.split("</think>")
+        return parts[-1].strip()
+        
+    # 3. Default fallback
+    return text.strip()
+
+
 # ─── Inference ───────────────────────────────────────────────────────────────
 
 def transcribe_image(pil_image: Image.Image) -> str:
@@ -146,12 +162,16 @@ def transcribe_image(pil_image: Image.Image) -> str:
         clean_up_tokenization_spaces=False,
     )[0]
 
-    return prediction.strip()
+    return extract_clean_prediction(prediction)
 
 
 def process_batch(images_b64: List[str]) -> List[LineResult]:
     results = []
-    for b64 in images_b64:
+    total = len(images_b64)
+    print(f"\n[Host HTR API] === Debut de la transcription par lot ({total} lignes) ===", flush=True)
+    
+    for idx, b64 in enumerate(images_b64):
+        print(f"[Host HTR API] Traitement de la ligne {idx + 1}/{total}...", flush=True)
         # Nettoyer le header data-URL si present
         if "," in b64:
             b64 = b64.split(",")[1]
@@ -159,9 +179,11 @@ def process_batch(images_b64: List[str]) -> List[LineResult]:
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
 
         text = transcribe_image(image)
+        print(f"[Host HTR API]   -> Ligne {idx + 1} transcrite : {text}", flush=True)
         # Format identique a l'API HATFormer : une seule hypothese, score = 1.0
         results.append(LineResult(beams=[text], beam_scores=[1.0]))
 
+    print(f"[Host HTR API] === Fin de la transcription par lot ===\n", flush=True)
     return results
 
 
