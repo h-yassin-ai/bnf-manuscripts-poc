@@ -5,6 +5,7 @@ import io
 import asyncio
 import traceback
 import subprocess
+import json
 
 # Stability flags (must be set before importing torch/unsloth)
 os.environ["UNSLOTH_RETURN_ANYWAY"] = "1"
@@ -18,7 +19,7 @@ import torch
 from unsloth import FastVisionModel
 from PIL import Image
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -224,6 +225,50 @@ async def transcribe(request: TranscribeRequest):
 
     return StreamingResponse(run_bridge(), media_type="application/x-ndjson")
 
+
+@app.post("/segment")
+async def segment(file: UploadFile = FastAPIFile(...)):
+    import tempfile
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_image = os.path.join(temp_dir, "image.png")
+        temp_json = os.path.join(temp_dir, "seg.json")
+        
+        # Save upload to temp file
+        content = await file.read()
+        with open(temp_image, "wb") as f:
+            f.write(content)
+            
+        # Determine model path
+        model_path = os.path.join(current_dir, "models", "muharaf.mlmodel")
+        
+        # Execute Kraken CLI segmentation
+        cmd = [
+            "kraken",
+            "-i", temp_image, temp_json,
+            "segment",
+            "-bl",
+            "-d", "horizontal-rl",
+            "-i", model_path
+        ]
+        
+        print(f"[Host HTR API] Executing layout analysis: {' '.join(cmd)}")
+        process = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if process.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Kraken segmentation failed (code {process.returncode}): {process.stderr or process.stdout}"
+            )
+            
+        if not os.path.exists(temp_json):
+            raise HTTPException(status_code=500, detail="Kraken output file was not generated.")
+            
+        with open(temp_json, "r", encoding="utf-8") as f:
+            segmentation_data = json.load(f)
+            
+        return segmentation_data
 
 
 if __name__ == "__main__":
