@@ -52,15 +52,73 @@ def clear_vram():
 
 def load_model():
     global model, processor
-    ckpt = CHECKPOINT_PATH if os.path.exists(CHECKPOINT_PATH) else BASE_MODEL_NAME
-    if not os.path.exists(CHECKPOINT_PATH):
-        print(f"WARNING: Checkpoint introuvable a {CHECKPOINT_PATH}. Chargement du modele de base.")
-    print(f"Chargement du modele depuis : {ckpt}")
+    print(f"Chargement du modele de base : {BASE_MODEL_NAME}")
     model, processor = FastVisionModel.from_pretrained(
-        model_name=ckpt,
+        model_name=BASE_MODEL_NAME,
         load_in_4bit=True,
         max_seq_length=2048,
     )
+    
+    # Redimensionner les embeddings pour correspondre au checkpoint
+    model.resize_token_embeddings(len(processor.tokenizer))
+    
+    if os.path.exists(CHECKPOINT_PATH):
+        print(f"Chargement des adaptateurs LoRA depuis : {CHECKPOINT_PATH}")
+        from peft import LoraConfig, get_peft_model, set_peft_model_state_dict
+        
+        # 1. Charger la config de l'adaptateur LoRA
+        with open(os.path.join(CHECKPOINT_PATH, "adapter_config.json"), "r") as f:
+            peft_config_dict = json.load(f)
+        peft_config = LoraConfig(**peft_config_dict)
+        
+        # 2. Initialiser l'adaptateur LoRA sur le modele
+        model = get_peft_model(model, peft_config)
+        
+        # 3. Charger le state dict (safetensors ou bin)
+        sf_path = os.path.join(CHECKPOINT_PATH, "adapter_model.safetensors")
+        bin_path = os.path.join(CHECKPOINT_PATH, "adapter_model.bin")
+        if os.path.exists(sf_path):
+            from safetensors.torch import load_file as safetensors_load
+            state_dict = safetensors_load(sf_path, device="cpu")
+        elif os.path.exists(bin_path):
+            state_dict = torch.load(bin_path, map_location="cpu")
+        else:
+            raise FileNotFoundError("Aucun fichier de poids d'adaptateur trouve.")
+            
+        # 4. Mapper les cles si necessaire pour compatibilite avec les versions de transformers
+        def find_prefix(keys):
+            for k in keys:
+                if "layers." in k and ("self_attn" in k or "mlp" in k or "linear_attn" in k):
+                    idx = k.find("layers.")
+                    return k[:idx]
+            return None
+
+        checkpoint_prefix = find_prefix(state_dict.keys())
+        model_prefix = find_prefix([name for name, _ in model.named_parameters()])
+        
+        print(f"Prefixe detecte dans le checkpoint : {checkpoint_prefix}")
+        print(f"Prefixe detecte dans le modele : {model_prefix}")
+        
+        new_state_dict = {}
+        if checkpoint_prefix and model_prefix and checkpoint_prefix != model_prefix:
+            old_layer_prefix = checkpoint_prefix + "layers."
+            new_layer_prefix = model_prefix + "layers."
+            print(f"Renommage du prefixe des couches '{old_layer_prefix}' en '{new_layer_prefix}' pour compatibilite.")
+            for k, v in state_dict.items():
+                if old_layer_prefix in k:
+                    new_key = k.replace(old_layer_prefix, new_layer_prefix, 1)
+                else:
+                    new_key = k
+                new_state_dict[new_key] = v
+        else:
+            new_state_dict = state_dict
+            
+        # 5. Charger les poids dans le modele
+        result = set_peft_model_state_dict(model, new_state_dict)
+        print(f"Resultat du chargement LoRA : {result}")
+    else:
+        print(f"WARNING: Checkpoint introuvable a {CHECKPOINT_PATH}. Utilisation du modele de base.")
+        
     FastVisionModel.for_inference(model)
     print("Modele pret.")
 
