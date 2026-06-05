@@ -27,6 +27,8 @@ import {
     CheckCircle2,
     Database,
     FileCode2,
+    HelpCircle,
+    X,
 } from "lucide-react";
 import { exportSegmentedImages } from "../lib/exportUtils";
 import { toast } from "sonner";
@@ -59,7 +61,19 @@ export default function ManuscriptWorkbench() {
     const [isSaving, setIsSaving] = useState(false);
     const [showPoints, setShowPoints] = useState(true);
     const [isDragging, setIsDragging] = useState(false);
+    const [showTutorial, setShowTutorial] = useState(false);
 
+    useEffect(() => {
+        const hasSeen = localStorage.getItem("htr_manuscript_tutorial_seen");
+        if (!hasSeen) {
+            setShowTutorial(true);
+        }
+    }, []);
+
+    const closeTutorial = () => {
+        localStorage.setItem("htr_manuscript_tutorial_seen", "true");
+        setShowTutorial(false);
+    };
 
     // HTR results: [page][lineId] → transcription string
     const [htrResults, setHtrResults] = useState<Record<number, HTRPageResults>>({});
@@ -721,6 +735,16 @@ export default function ManuscriptWorkbench() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowTutorial(true)}
+                        className="h-8 w-8 text-stone-400 hover:text-indigo-600 rounded-full"
+                        title="Guide d'utilisation"
+                    >
+                        <HelpCircle className="w-5 h-5" />
+                    </Button>
+
                     {isSaving && (
                         <div className="flex items-center gap-1 text-[10px] text-stone-400 uppercase tracking-wider animate-pulse">
                             <Save className="w-3 h-3" /> Sauvegarde...
@@ -1092,6 +1116,95 @@ export default function ManuscriptWorkbench() {
                     </div>
                 )}
             </CardContent>
+
+            {/* Tutorial Popup Modal */}
+            {showTutorial && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-stone-900/60 backdrop-blur-md transition-opacity duration-300 animate-in fade-in">
+                    <div className="relative max-w-lg w-full bg-white/95 rounded-2xl shadow-2xl border border-stone-200/50 p-8 m-4 transform transition-all duration-300 scale-100 animate-in zoom-in-95">
+                        {/* Close Button */}
+                        <button 
+                            onClick={closeTutorial} 
+                            className="absolute top-4 right-4 text-stone-400 hover:text-stone-700 transition-colors p-1.5 rounded-full hover:bg-stone-100"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                        
+                        {/* Header */}
+                        <div className="text-center mb-6">
+                            <span className="inline-block text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full mb-2">
+                                Tutoriel Interactif
+                            </span>
+                            <h3 className="text-2xl font-serif font-bold text-stone-900">
+                                Bienvenue dans l'Atelier Manuscrit
+                            </h3>
+                            <p className="text-sm text-stone-500 mt-1">
+                                Suivez ces 3 étapes simples pour transcrire vos manuscrits arabes :
+                            </p>
+                        </div>
+
+                        {/* Steps Container */}
+                        <div className="flex flex-col gap-4 mb-6">
+                            {/* Step 1 */}
+                            <div className="flex gap-4 items-start p-4 rounded-xl bg-stone-50 border border-stone-100 hover:border-indigo-100 transition-all duration-200 group">
+                                <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
+                                    1
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-stone-850 text-sm flex items-center gap-1.5">
+                                        <Upload className="w-4 h-4 text-indigo-500" />
+                                        Étape 1 : Upload votre image
+                                    </h4>
+                                    <p className="text-xs text-stone-500 mt-0.5">
+                                        Glissez-déposez ou cliquez sur <b>"Charger PDF/Image"</b> pour ajouter votre document.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Step 2 */}
+                            <div className="flex gap-4 items-start p-4 rounded-xl bg-stone-50 border border-stone-100 hover:border-indigo-100 transition-all duration-200 group">
+                                <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
+                                    2
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-stone-850 text-sm flex items-center gap-1.5">
+                                        <Scissors className="w-4 h-4 text-emerald-500" />
+                                        Étape 2 : Cliquez sur "Segmenter page"
+                                    </h4>
+                                    <p className="text-xs text-stone-500 mt-0.5">
+                                        Découpez automatiquement la page en lignes de texte prêtes pour l'analyse.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Step 3 */}
+                            <div className="flex gap-4 items-start p-4 rounded-xl bg-stone-50 border border-stone-100 hover:border-indigo-100 transition-all duration-200 group">
+                                <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
+                                    3
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-stone-850 text-sm flex items-center gap-1.5">
+                                        <ScanText className="w-4 h-4 text-violet-500" />
+                                        Étape 3 : Cliquer sur "Transcrire page" et attendre.
+                                    </h4>
+                                    <p className="text-xs text-stone-500 mt-0.5">
+                                        Notre intelligence artificielle Qwen HTR transcrira chaque ligne en écriture arabe propre.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Action Button */}
+                        <div className="flex justify-center">
+                            <Button 
+                                onClick={closeTutorial} 
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-200 py-2.5 rounded-xl font-medium transition-all cursor-pointer"
+                            >
+                                Commencer l'atelier
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </Card>
     );
 }
