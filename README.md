@@ -1,34 +1,42 @@
 # BNF Manuscripts POC
 
-An AI-powered document scraping, dataset preparation, and fine-tuned Vision-Language LLM inference platform for historical Arabic Handwritten Text Recognition (HTR).
+An AI-powered manuscript ingestion, page & line segmentation, dataset curation, and multi-model Vision HTR inference platform designed for historical Arabic Handwritten Text Recognition.
 
-This repository contains an automated manuscript web scraper, a FastAPI inference backend serving a fine-tuned `Qwen 3.5 9B` Vision LLM via `Unsloth` (4-bit quantization), and a Next.js web application for interactive document transcription.
+This repository features an interactive web interface for **page and line bounding-box segmentation**, an automated digital manuscript scraper, and two production-grade backend inference APIs powered by fine-tuned vision models (`Qwen 3.5 9B` via `Unsloth` and `HATFormer` across multi-GPU environments).
 
 ---
 
-## 🚀 Complete Feature Breakdown
+## 🚀 Key Technical Features
 
-### 1. 🌐 Digital Library Document Scraper (`dl_manuscrit_fondation.py`)
-* **Automated Batch Ingestion:** 
-  * Downloads high-resolution manuscript page scans from digital library servers (such as the *Fondation Roi Abdul-Aziz*).
-  * Automated URL decomposition, number padding preservation (`zfill`), and directory creation based on manuscript metadata.
-  * Robust HTTP chunk streaming (`iter_content`) with request timeout handling and graceful interruption (`Ctrl+C`).
+### 1. ✂️ Interactive Page & Line Bounding-Box Segmentation
 
-### 2. ⚡ Fine-Tuned Multimodal LLM Inference API (`api_qwen_htr.py`)
-* **FastAPI Backend Server:**
+* **Visual Line Bounding-Box Segmentation Engine:**
+  * Interactive canvas allowing users to segment full manuscript pages into individual line crops (`exportSegmentedImages`).
+  * Real-time line crop extraction and storage using IndexedDB and local disk workspace persistence (`/saved_projects/`).
+  * Bulk export utilities (`bulkExportProjects`) for generating line-level HTR dataset annotations.
+
+---
+
+### 2. ⚡ Dual-Model Vision HTR Inference APIs
+
+* **Qwen 3.5 9B Vision-Language LLM Backend (`api_qwen_htr.py`):**
   * Serves custom fine-tuned adapters (`checkpoint-200`) trained on Arabic manuscript lines (~11K annotated line dataset).
-  * Uses `FastVisionModel` from **Unsloth** for 4-bit quantized loading of `unsloth/Qwen3.5-9B`.
-* **Advanced PEFT Checkpoint Adapter Remapping:**
-  * Includes automated prefix detection (`find_prefix`) and dynamic key remapping to bridge layer naming mismatches between different versions of `transformers` and `peft` safetensors/bin state dicts.
-* **VRAM & Memory Optimization:**
-  * Enforces dynamic pixel constraints (`MAX_PIXELS = 602112`, `MIN_PIXELS = 28 * 28 * 64`) optimized for handwritten line images.
-  * Automated VRAM cache clearing (`gc.collect()` and `torch.cuda.empty_cache()`) during lifespan context initialization.
-  * Asynchronous lifespan context management for seamless model loading and unloading.
+  * 4-bit quantized loading using `Unsloth` (`FastVisionModel`) for low-VRAM inference execution.
+  * Automated prefix detection (`find_prefix`) and dynamic key remapping to bridge adapter name mismatches across `transformers` and `peft` versions.
+  * Dynamic pixel constraint limits (`MAX_PIXELS = 602112`, `MIN_PIXELS = 28 * 28 * 64`) to prevent GPU OOM errors.
 
-### 3. 🎨 Next.js Interactive Web Interface
-* **Manuscript Explorer & Line Crop Viewer:**
-  * Full-stack Next.js (App Router) interface allowing users to browse manuscript collections, view page scans, and select line regions.
-  * Direct REST integration with the FastAPI HTR backend to trigger real-time inference and display transcribed Arabic text side-by-side with original manuscript crops.
+* **HATFormer Multi-GPU Load Balanced Backend (`api_htr.py`):**
+  * `VisionEncoderDecoderModel` (`HATFormer`) architecture trained specifically for sequence-to-sequence Arabic script recognition.
+  * **Multi-GPU Load Balancing:** Automatically detects available GPUs (e.g. 2x RTX 3090) and distributes model instances across `cuda:0` and `cuda:1` using round-robin request dispatching (`get_next_model`).
+  * **Beam Search Decoder:** Runs 5-beam search (`NUM_BEAMS=5`) returning top candidate sequences (`NUM_RETURN_SEQUENCES=3`) alongside sequence-level log-probability scores.
+  * Specialized aspect-ratio resizing, image flipping, and segment patching to preserve recognition accuracy.
+
+---
+
+### 3. 🌐 Digital Library Document Scraper (`dl_manuscrit_fondation.py`)
+
+* Automated batch manuscript downloader for digital library APIs (e.g. *Fondation Roi Abdul-Aziz*).
+* Zero-padding preservation (`zfill`), timeout retry handlers, and chunked stream writes.
 
 ---
 
@@ -36,23 +44,27 @@ This repository contains an automated manuscript web scraper, a FastAPI inferenc
 
 ```mermaid
 graph TD
-    subgraph Data Acquisition Layer
-        A[Digital Library Server] -->|dl_manuscrit_fondation.py| B[Raw Manuscript Image Directory]
+    subgraph Data Ingestion & Segmentation
+        A[Digital Library Server] -->|dl_manuscrit_fondation.py| B[Manuscript Image Directory]
+        B --> C[Next.js Interactive Segmentation Canvas]
+        C -->|Line Crop Bounding Boxes| D[IndexedDB & Saved Projects Storage]
     end
 
-    subgraph Inference API Backend
-        B -->|Line Crop / Base64 Payload| C[FastAPI REST Endpoint]
-        C --> D[VRAM & Memory Optimizer]
-        D --> E[Unsloth FastVisionModel: Qwen3.5-9B]
-        E -->|LoRA Adapter Weights| F[PEFT Checkpoint Remapper]
-        F --> G[Model Inference Output]
-        G -->|Formatted Text| C
+    subgraph Dual Inference Backend Engines
+        D -->|Line Crop Image Payload| E{Select HTR Model Engine}
+        
+        E -->|Engine A: Qwen 3.5 9B| F[FastAPI Qwen VLM Server - 4-bit Unsloth]
+        E -->|Engine B: HATFormer| G[FastAPI HATFormer Server - Multi-GPU Load Balanced]
+        
+        F --> H[Dynamic Key Remapper & PEFT Adapter]
+        G --> I[Multi-GPU Round-Robin Dispatcher: cuda:0 / cuda:1]
+        I --> J[5-Beam Search Candidate Generator]
     end
 
-    subgraph User Interface Layer
-        H[Next.js App Router Web UI] -->|HTTP Post Request| C
-        C -->|JSON Transcription Response| H
-        H --> I[Side-by-Side Line & Text Viewer]
+    subgraph Output & Curation
+        H --> K[Transcription Response Payload]
+        J --> K
+        K --> L[Side-by-Side Line & Text Visualizer]
     end
 ```
 
@@ -60,10 +72,9 @@ graph TD
 
 ## 💻 Tech Stack
 
-* **Language:** Python 3.10+, TypeScript
-* **Deep Learning & Acceleration:** PyTorch (CUDA), Unsloth (`FastVisionModel`), PEFT (LoRA/QLoRA), Transformers, BitsAndBytes.
-* **API Backend:** FastAPI, Pydantic, Uvicorn, Pillow (PIL), Requests.
-* **Frontend:** Next.js (App Router), React, Tailwind CSS, Lucide React.
+* **Machine Learning Frameworks:** PyTorch (CUDA), Unsloth (`FastVisionModel`), PEFT (LoRA/QLoRA), Transformers (`VisionEncoderDecoderModel`), BitsAndBytes, Torchvision.
+* **API Backend:** FastAPI, Uvicorn, Pydantic, Pillow, Requests, Asyncio.
+* **Frontend UI:** Next.js (App Router), React, TypeScript, Tailwind CSS, Lucide React, IndexedDB (`storage.ts`).
 
 ---
 
@@ -72,14 +83,17 @@ graph TD
 ### 1. Ingest Manuscript Scans
 ```bash
 python dl_manuscrit_fondation.py
-# Enter the starting image URL and total pages count when prompted
 ```
 
-### 2. Launch the FastAPI HTR Inference Engine
-*Ensure your GPU supports CUDA and Unsloth dependencies are installed.*
+### 2. Launch the HTR Inference Backend
+*To launch Qwen 3.5 9B VLM:*
 ```bash
 python api_qwen_htr.py
-# The server will start on http://localhost:8000
+```
+
+*To launch HATFormer Multi-GPU engine:*
+```bash
+python api_htr.py
 ```
 
 ### 3. Run the Next.js Web Interface
